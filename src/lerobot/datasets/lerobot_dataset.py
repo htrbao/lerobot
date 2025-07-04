@@ -342,6 +342,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         force_cache_sync: bool = False,
         download_videos: bool = True,
         video_backend: str | None = None,
+        need_control_output: bool = False,
     ):
         """
         2 modes are available for instantiating this class, depending on 2 different use cases:
@@ -454,6 +455,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.revision = revision if revision else CODEBASE_VERSION
         self.video_backend = video_backend if video_backend else get_safe_default_codec()
         self.delta_indices = None
+        self.need_control_output = need_control_output
 
         # Unused attributes
         self.image_writer = None
@@ -706,10 +708,17 @@ class LeRobotDataset(torch.utils.data.Dataset):
         query_indices = None
         if self.delta_indices is not None:
             query_indices, padding = self._get_query_indices(idx, ep_idx)
+            if query_indices is not None and self.need_control_output:
+                past_query_indices = query_indices["action"].copy() - 16
+
             query_result = self._query_hf_dataset(query_indices)
             item = {**item, **padding}
             for key, val in query_result.items():
                 item[key] = val
+        
+        # Check if any element in past_query_indices is negative
+        if self.need_control_output and not any(delta < 0 for delta in past_query_indices["action"]):
+            item["past_action"] = self._query_hf_dataset(past_query_indices)["action"]
 
         if len(self.meta.video_keys) > 0:
             current_ts = item["timestamp"].item()
